@@ -1,8 +1,46 @@
 {
-    "folders": [
-        {
-            "path": ".AL-Go"
-        }
+	"folders": [
+		{
+			"path": ".github"
+		},
+		{
+			"path": ".AL-Go"
+		}
+	],
+	"settings": {
+    "al.backgroundCodeAnalysis": true,
+    "al.enableCodeAnalysis": true,
+    "al.enableExternalRulesets": true,
+    "al.incrementalBuild": true,
+    "al.outputAnalyzerStatistics": true,
+    "alOutline.enableCodeCopFixes": true,
+    "alOutline.idReservationProvider": "",
+    "alOutline.limitEnumNameLength": true,
+    "CRS.FileNamePattern": "<ObjectNameShort>.<ObjectTypeShortPascalCase>.al",
+    "CRS.FileNamePatternExtensions": "<ObjectNameShort>.<ObjectTypeShortPascalCase>.al",
+    "CRS.FileNamePatternPageCustomizations": "<ObjectNameShort>.<ObjectTypeShortPascalCase>.al",
+    "CRS.OnSaveAlFileAction": "Rename",
+    "CRS.RenameWithGit": false,
+	"linterCop.autoDownload": true,
+    "alOutline.completionProviders": [
+      "VariableNamesWithType",
+      "VariableDataTypes"
     ],
-    "settings": {}
+    "alOutline.codeCleanupActions": [
+      "AddMissingParentheses",
+      "FixKeywordsCase",
+      "FixIdentifiersCase",
+      "RemoveEmptyLines",
+      "RemoveEmptySections",
+      "RemoveEmptyTriggers",
+      "SortVariables",
+      "AddDataClassifications"
+    ],
+    "al-xml-doc.CheckObjectDocumentationInformationLevel": "Disabled",
+    "al-xml-doc.CheckProcedureDocumentationInformationLevel": "Disabled",
+    "cSpell.words": [
+			"CICD",
+			"ghapptoken"
+		]
+  }
 }

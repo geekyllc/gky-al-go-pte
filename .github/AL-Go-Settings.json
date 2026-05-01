@@ -1,5 +1,114 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/AL-Go-Actions/v9.0/.Modules/settings.schema.json",
   "type": "PTE",
-  "templateUrl": "https://github.com/microsoft/AL-Go-PTE@main"
+  "templateUrl": "https://github.com/microsoft/AL-Go-PTE@main",
+	"CICDPushBranches": [
+    "main",
+    "development",
+    "release/*",
+    "feature/*",
+		"hotfix/*"
+  ],
+  "CICDPullRequestBranches": [
+    "main",
+    "development",
+    "release/*",
+    "feature/*",
+		"hotfix/*"
+  ],
+	"DeliverToStorage": {
+    "CreateContainerIfNotExist": true,
+    "Branches": [
+      "main",
+			"development",
+			"release/*",
+			"feature/*",
+			"hotfix/*"
+    ]
+  },
+	"incrementalBuilds": {
+    "onPull_Request": false,
+		"onPush": false,
+		"onSchedule": false,
+		"retentionDays": 90,
+		"mode": "Default"
+  },
+	"useProjectDependencies": true,
+  "runs-on": "self-hosted, ubuntu-latest",
+  "gitHubRunner": "self-hosted, windows-latest",
+  "shell": "pwsh",
+  "cacheImageName": "gky-us",
+  "cacheKeepDays": 3,
+  "shortLivedArtifactsRetentionDays": 3,
+  "GenerateDependencyArtifact": true,
+  "keyVaultName": "gky-vault-premium-01",
+  "ghTokenWorkflowSecretName": "algo-ghapptoken",
+  "licenseFileUrlSecretName": "algo-devlicense-w1",
+  "keyVaultCodesignCertificateName": "GlobalSign-GeekyLLC",
+  "versioningStrategy": 3,
+  "vsixFile": "latest",
+  "enableExternalRulesets": true,
+  "enableCodeCop": true,
+  "enableUICop": true,
+  "customCodeCops": [
+    "https://github.com/StefanMaron/BusinessCentral.LinterCop/releases/latest/download/BusinessCentral.LinterCop.dll"
+  ],
+	"ConditionalSettings": [
+    {
+      "workflows": [
+        "Test Current"
+      ],
+      "settings": {
+        "workflowSchedule": {
+          "cron": "5 2 * * 0,3,5"
+        }
+      }
+    },
+    {
+      "workflows": [
+        "Test Next Minor"
+      ],
+      "settings": {
+        "workflowSchedule": {
+          "cron": "15 2 * * 0"
+        }
+      }
+    },
+    {
+      "workflows": [
+        "Test Next Major"
+      ],
+      "settings": {
+        "workflowSchedule": {
+          "cron": "35 2 10,20 */1 *"
+        }
+      }
+    },
+    {
+      "branches": [
+        "main",
+        "release/*"
+      ],
+      "settings": {
+        "preprocessorSymbols": [
+          "PRODUCTION"
+        ],
+        "storageContextSecretName": "algo-storagecontext-production"
+      }
+    },
+    {
+      "branches": [
+        "development",
+        "hotfix/*",
+				"feature/*"
+      ],
+      "settings": {
+        "preprocessorSymbols": [
+          "DEVELOPMENT"
+        ],
+        "doNotSignApps": false,
+        "storageContextSecretName": "algo-storagecontext-development"
+      }
+    }
+  ]
 }
