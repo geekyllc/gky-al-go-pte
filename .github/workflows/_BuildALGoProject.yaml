@@ -97,6 +97,13 @@ jobs:
         shell: ${{ inputs.shell }}
     name: ${{ inputs.projectName }} (${{ inputs.buildMode }})
     steps:
+      - name: Clean up workspace
+        id: clean-workspace
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
+        with:
+          keep-git: false
+          min-log-level: 1
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

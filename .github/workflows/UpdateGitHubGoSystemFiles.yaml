@@ -68,7 +68,7 @@ jobs:
     steps:
       - name: Clean up workspace
         id: clean-workspace
-        uses: geekyllc/gky-gha-cleanup-workspace@v0.1.18
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
         with:
           keep-git: false
           min-log-level: 1
@@ -116,7 +116,7 @@ jobs:
     steps:
       - name: Clean up workspace
         id: clean-workspace
-        uses: geekyllc/gky-gha-cleanup-workspace@v0.1.18
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
         with:
           keep-git: false
           min-log-level: 1
