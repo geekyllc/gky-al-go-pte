@@ -1,0 +1,408 @@
+name: 'Update Workflows (3-Way Merge)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      templateRepository:
+        description: >-
+          Template repository in 'owner/repo' format.
+          This is the custom template that sits on top of the base AL-Go template.
+        required: true
+        default: ''
+      originalRef:
+        description: >-
+          The git ref (tag/commit SHA) of the template that was previously applied to
+          this repository. Used as the 'base' in the 3-way merge.
+        required: true
+        default: ''
+      newRef:
+        description: >-
+          The git ref (tag/branch/commit SHA) of the template version to update to.
+          Leave empty to use the default branch (HEAD).
+        required: false
+        default: ''
+      conflictStrategy:
+        description: 'How to handle step conflicts: template-wins, destination-wins, or error'
+        required: false
+        default: 'template-wins'
+      directCommit:
+        description: 'Commit changes directly to the branch instead of creating a pull request'
+        type: boolean
+        default: false
+      includeBranches:
+        description: >-
+          Comma-separated list of branches to update. Leave empty to update the
+          current branch only.
+        required: false
+        default: ''
+
+  workflow_call:
+    inputs:
+      caller:
+        description: Name of the calling workflow (use github.workflow as value when calling)
+        type: string
+        required: true
+      templateRepository:
+        description: Template repository in 'owner/repo' format
+        type: string
+        required: true
+      originalRef:
+        description: The git ref of the previously-applied template (base for 3-way merge)
+        type: string
+        required: true
+      newRef:
+        description: The git ref of the template version to update to (empty = HEAD)
+        type: string
+        required: false
+        default: ''
+      conflictStrategy:
+        description: 'Conflict strategy: template-wins, destination-wins, or error'
+        type: string
+        required: false
+        default: 'template-wins'
+      directCommit:
+        description: Commit directly instead of creating a pull request
+        type: boolean
+        default: false
+      includeBranches:
+        description: Comma-separated list of branches to update (empty = current branch only)
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  GKY_ACTIONS_VERSION: 'v0.1.18'
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Resolve which branches and which workflow files to process,
+  # then build a {branch, file} matrix for the MergeFile job.
+  # ──────────────────────────────────────────────────────────────
+  Initialize:
+    name: Initialize
+    runs-on: ubuntu-latest
+    outputs:
+      updateBranches: ${{ steps.resolve-branches.outputs.branches }}
+      resolvedNewRef: ${{ steps.resolve-ref.outputs.newRef }}
+      branchFileMatrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - name: Clean up workspace
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
+        with:
+          keep-git: false
+          min-log-level: 6
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve branches to update
+        id: resolve-branches
+        env:
+          INCLUDE_BRANCHES: ${{ inputs.includeBranches }}
+          CURRENT_BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -z "$INCLUDE_BRANCHES" ]; then
+            branches="[\"$CURRENT_BRANCH\"]"
+          else
+            IFS=',' read -ra branch_array <<< "$INCLUDE_BRANCHES"
+            json="["
+            first=true
+            for b in "${branch_array[@]}"; do
+              b=$(echo "$b" | xargs)
+              if [ "$first" = true ]; then
+                json="${json}\"${b}\""
+                first=false
+              else
+                json="${json},\"${b}\""
+              fi
+            done
+            json="${json}]"
+            branches="$json"
+          fi
+          echo "branches=$branches" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve new template ref
+        id: resolve-ref
+        env:
+          NEW_REF_INPUT: ${{ inputs.newRef }}
+          TEMPLATE_REPO: ${{ inputs.templateRepository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$NEW_REF_INPUT" ]; then
+            echo "newRef=$NEW_REF_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            default_branch=$(gh api "repos/$TEMPLATE_REPO" --jq '.default_branch')
+            sha=$(gh api "repos/$TEMPLATE_REPO/git/ref/heads/$default_branch" --jq '.object.sha')
+            echo "newRef=$sha" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build branch × file matrix
+        id: build-matrix
+        env:
+          TEMPLATE_REPO: ${{ inputs.templateRepository }}
+          ORIG_REF: ${{ inputs.originalRef }}
+          NEW_REF: ${{ steps.resolve-ref.outputs.newRef }}
+          BRANCHES: ${{ steps.resolve-branches.outputs.branches }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Files present in the template at originalRef
+          orig_files=$(gh api \
+            "repos/$TEMPLATE_REPO/contents/.github/workflows?ref=$ORIG_REF" \
+            --jq '[.[] | select(.type == "file") | select(.name | test("\\.(yml|yaml)$")) | .name]' \
+            2>/dev/null || echo '[]')
+
+          # Files present in the template at newRef
+          new_files=$(gh api \
+            "repos/$TEMPLATE_REPO/contents/.github/workflows?ref=$NEW_REF" \
+            --jq '[.[] | select(.type == "file") | select(.name | test("\\.(yml|yaml)$")) | .name]' \
+            2>/dev/null || echo '[]')
+
+          # Intersection: files present in both template versions
+          common_files=$(jq -n \
+            --argjson a "$orig_files" \
+            --argjson b "$new_files" \
+            '$a | map(select(. as $x | $b | contains([$x])))')
+
+          echo "Found $(echo "$common_files" | jq 'length') common workflow file(s): $common_files"
+
+          # Build {branch, file} matrix entries
+          matrix=$(jq -n \
+            --argjson branches "$BRANCHES" \
+            --argjson files "$common_files" \
+            '[ $branches[] as $b | $files[] as $f | {"branch": $b, "file": $f} ]')
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  # ──────────────────────────────────────────────────────────────
+  # Merge one workflow file per matrix item using the
+  # workflow-merger action directly (no bash node invocation).
+  # ──────────────────────────────────────────────────────────────
+  MergeFile:
+    name: '[${{ matrix.branch }}] Merge ${{ matrix.file }}'
+    needs: [Initialize]
+    if: needs.Initialize.outputs.branchFileMatrix != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.Initialize.outputs.branchFileMatrix) }}
+      fail-fast: false
+
+    steps:
+      - name: Clean up workspace
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
+        with:
+          keep-git: false
+          min-log-level: 6
+
+      # ── 1. Check out destination branch ──────────────────────
+      - name: Checkout destination
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Fetch ORIGINAL template workflows ─────────────────
+      - name: Fetch original template workflows
+        uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.0
+        with:
+          token: ${{ github.token }}
+          repository: ${{ inputs.templateRepository }}
+          ref: ${{ inputs.originalRef }}
+          output-directory: _merge_tmp/original
+          pattern: '.github/workflows'
+
+      # ── 3. Fetch NEW template workflows ──────────────────────
+      - name: Fetch new template workflows
+        uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.0
+        with:
+          token: ${{ github.token }}
+          repository: ${{ inputs.templateRepository }}
+          ref: ${{ needs.Initialize.outputs.resolvedNewRef }}
+          output-directory: _merge_tmp/new
+          pattern: '.github/workflows'
+
+      # ── 4. Check whether the destination has this file ───────
+      - name: Check destination file
+        id: dest-check
+        run: |
+          if [ -f ".github/workflows/${{ matrix.file }}" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 5a. 3-way merge (file exists in destination) ─────────
+      - name: Merge ${{ matrix.file }}
+        id: merge
+        if: steps.dest-check.outputs.exists == 'true'
+        uses: geekyllc/gky-gha-workflow-merger@v0.2.0
+        with:
+          original-workflow: _merge_tmp/original/${{ matrix.file }}
+          template-workflow: _merge_tmp/new/${{ matrix.file }}
+          destination-workflow: .github/workflows/${{ matrix.file }}
+          conflict-strategy: ${{ inputs.conflictStrategy }}
+
+      # ── 5b. Copy new file (not yet in destination) ───────────
+      - name: Copy new workflow file
+        id: copy
+        if: steps.dest-check.outputs.exists == 'false'
+        run: |
+          cp "_merge_tmp/new/${{ matrix.file }}" ".github/workflows/${{ matrix.file }}"
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+
+      # ── 6. Upload changed file as artifact ───────────────────
+      - name: Compute safe artifact name
+        id: artifact-name
+        if: steps.merge.outputs.merged == 'true' || steps.copy.outputs.merged == 'true'
+        run: |
+          safe=$(echo "${{ matrix.branch }}" | tr '/' '-' | tr ':' '-' | tr ' ' '-')
+          echo "name=changed-${safe}-${{ matrix.file }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload changed workflow file
+        if: steps.merge.outputs.merged == 'true' || steps.copy.outputs.merged == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: .github/workflows/${{ matrix.file }}
+          if-no-files-found: error
+
+      # ── 7. Job summary ────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        env:
+          FILE: ${{ matrix.file }}
+          BRANCH: ${{ matrix.branch }}
+          MERGED: ${{ steps.merge.outputs.merged || steps.copy.outputs.merged || 'false' }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts-count || '0' }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### \`$FILE\` on \`$BRANCH\`
+          - Merged: **$MERGED**
+          - Conflicts: **$CONFLICTS**
+          EOF
+
+  # ──────────────────────────────────────────────────────────────
+  # After all files for each branch are merged, collect the
+  # changed files and commit directly or create a pull request.
+  # ──────────────────────────────────────────────────────────────
+  CommitOrPR:
+    name: '[${{ matrix.branch }}] Commit / Create PR'
+    needs: [Initialize, MergeFile]
+    if: always() && needs.Initialize.result == 'success' && !cancelled()
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: ${{ fromJson(needs.Initialize.outputs.updateBranches) }}
+      fail-fast: false
+
+    steps:
+      - name: Clean up workspace
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
+        with:
+          keep-git: false
+          min-log-level: 6
+
+      - name: Checkout destination
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # ── Compute safe name for artifact pattern matching ───────
+      - name: Compute safe branch name
+        id: safe-name
+        run: |
+          safe=$(echo "${{ matrix.branch }}" | tr '/' '-' | tr ':' '-' | tr ' ' '-')
+          echo "branch=$safe" >> "$GITHUB_OUTPUT"
+
+      # ── Download all changed files for this branch ────────────
+      - name: Download merged workflow files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: changed-${{ steps.safe-name.outputs.branch }}-*
+          path: .github/workflows/
+          merge-multiple: true
+        continue-on-error: true
+
+      # ── Detect whether anything actually changed ──────────────
+      - name: Check for changes
+        id: check-changes
+        uses: geekyllc/gky-gha-check-git-changes@v0.2.0
+        with:
+          paths: '.github/workflows'
+
+      # ── 8a. Direct commit ─────────────────────────────────────
+      - name: Commit and push directly
+        if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit == true
+        uses: geekyllc/gky-gha-commit-and-push@v0.2.0
+        with:
+          token: ${{ github.token }}
+          commit_message: >-
+            chore: update workflows via 3-way merge from
+            ${{ inputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
+          path: '.github/workflows'
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+
+      # ── 8b. Create pull request ───────────────────────────────
+      - name: Stage and push to PR branch
+        id: stage
+        if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit != true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          new_branch="update-workflows/${{ steps.safe-name.outputs.branch }}-${{ needs.Initialize.outputs.resolvedNewRef }}"
+          git checkout -b "$new_branch"
+          git add .github/workflows/
+          git commit -m "chore: update workflows via 3-way merge from ${{ inputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}"
+          git push origin "$new_branch"
+          echo "pr-branch=$new_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit != true
+        uses: geekyllc/gky-gha-create-pull-request@v0.2.0
+        with:
+          token: ${{ github.token }}
+          source_branch: ${{ steps.stage.outputs.pr-branch }}
+          target_branch: ${{ matrix.branch }}
+          title: 'chore: update workflows via 3-way merge (${{ needs.Initialize.outputs.resolvedNewRef }})'
+          body: |
+            ## Automated Workflow Update
+
+            This pull request updates `.github/workflows/` by performing a **3-way merge** between:
+
+            | Role | Repository | Ref |
+            |------|-----------|-----|
+            | Original (base) | `${{ inputs.templateRepository }}` | `${{ inputs.originalRef }}` |
+            | New template | `${{ inputs.templateRepository }}` | `${{ needs.Initialize.outputs.resolvedNewRef }}` |
+            | Destination | this repository | `${{ matrix.branch }}` |
+
+            ### Conflict strategy
+            `${{ inputs.conflictStrategy }}`
+
+      # ── 9. Summary ────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        env:
+          ANY_CHANGES: ${{ steps.check-changes.outputs.has_changes }}
+          BRANCH: ${{ matrix.branch }}
+          TEMPLATE: ${{ inputs.templateRepository }}
+          ORIG_REF: ${{ inputs.originalRef }}
+          NEW_REF: ${{ needs.Initialize.outputs.resolvedNewRef }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Workflow Update Summary — branch \`$BRANCH\`
+
+          | Item | Value |
+          |------|-------|
+          | Template repository | \`$TEMPLATE\` |
+          | Original ref | \`$ORIG_REF\` |
+          | New ref | \`$NEW_REF\` |
+          | Changes applied | $ANY_CHANGES |
+          EOF
+
