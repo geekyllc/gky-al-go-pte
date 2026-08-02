@@ -103,7 +103,7 @@ jobs:
       resolvedNewRef: ${{ steps.resolve-ref.outputs.newRef }}
     steps:
       - name: Clean up workspace
-        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
         with:
           keep-git: false
           min-log-level: 1
@@ -167,7 +167,7 @@ jobs:
 
     steps:
       - name: Clean up workspace
-        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.0
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
         with:
           keep-git: false
           min-log-level: 1
@@ -203,7 +203,7 @@ jobs:
 
       # ── 2. Fetch ORIGINAL (base) workflow directory ───────────
       - name: Fetch original template workflows
-        uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.0
+        uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.1
         with:
           token: ${{ github.token }}
           repository: ${{ inputs.baseRepository || inputs.templateRepository }}
@@ -214,7 +214,7 @@ jobs:
 
       # ── 3. Fetch NEW template workflow directory ──────────────
       - name: Fetch new template workflows
-        uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.0
+        uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.1
         with:
           token: ${{ github.token }}
           repository: ${{ inputs.templateRepository }}
@@ -226,7 +226,7 @@ jobs:
       # ── 4. 3-way merge entire workflow directory ──────────────
       - name: Merge workflow directories
         id: merge
-        uses: geekyllc/gky-gha-workflow-merger@v0.2.0
+        uses: geekyllc/gky-gha-workflow-merger@v0.2.1
         with:
           original-workflow: _merge_tmp/original
           template-workflow: _merge_tmp/new
@@ -238,7 +238,7 @@ jobs:
       # ── 5. Detect whether anything actually changed ───────────
       - name: Check for changes
         id: check-changes
-        uses: geekyllc/gky-gha-check-git-changes@v0.2.0
+        uses: geekyllc/gky-gha-check-git-changes@v0.2.1
         with:
           paths: '.github/workflows/**'
 
@@ -252,7 +252,7 @@ jobs:
       # ── 7a. Direct commit ─────────────────────────────────────
       - name: Commit and push directly
         if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit == true
-        uses: geekyllc/gky-gha-commit-and-push@v0.2.0
+        uses: geekyllc/gky-gha-commit-and-push@v0.2.1
         with:
           token: ${{ steps.ReadSecrets.outputs.TokenForPush }}
           commit_message: >-
@@ -266,7 +266,7 @@ jobs:
       - name: Commit and push PR branch
         id: stage
         if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit != true
-        uses: geekyllc/gky-gha-commit-and-push@v0.2.0
+        uses: geekyllc/gky-gha-commit-and-push@v0.2.1
         with:
           token: ${{ steps.ReadSecrets.outputs.TokenForPush }}
           target_branch: update-workflows/${{ steps.safe-name.outputs.branch }}-${{ needs.Initialize.outputs.resolvedNewRef }}
@@ -282,7 +282,7 @@ jobs:
           steps.check-changes.outputs.has_changes == 'true' &&
           inputs.directCommit != true &&
           steps.stage.outputs.branch_name != matrix.branch
-        uses: geekyllc/gky-gha-create-pull-request@v0.2.0
+        uses: geekyllc/gky-gha-create-pull-request@v0.2.1
         with:
           token: ${{ steps.ReadSecrets.outputs.TokenForPush }}
           source_branch: ${{ steps.stage.outputs.branch_name }}
