@@ -6,29 +6,28 @@ on:
       templateRepository:
         description: >-
           Template repository in 'owner/repo' format.
-          This is the custom template that sits on top of the base AL-Go template.
-        required: true
-        default: 'geekyllc/gky-al-go-pte'
+          Leave empty to use gkySettings.workflowUpdater.templateRepository.
+        required: false
+        default: ''
       baseRepository:
         description: >-
           Base repository in 'owner/repo' format. This is the repository from which
           originalRef was taken (i.e., the template that was previously applied to this
-          repository). Leave empty to use templateRepository (same repo for both original
-          and new).
+          repository). Leave empty to use gkySettings.workflowUpdater.baseRepository.
         required: false
-        default: 'microsoft/AL-Go-PTE'
+        default: ''
       originalRef:
         description: >-
           The git ref (tag/commit SHA) of the template that was previously applied to
-          this repository. Used as the 'base' in the 3-way merge.
-        required: true
-        default: 'main'
+          this repository. Leave empty to use gkySettings.workflowUpdater.baseRef.
+        required: false
+        default: ''
       newRef:
         description: >-
           The git ref (tag/branch/commit SHA) of the template version to update to.
-          Leave empty to use the default branch (HEAD).
+          Leave empty to use gkySettings.workflowUpdater.templateRef, then HEAD if unset.
         required: false
-        default: 'chore/update-config'
+        default: ''
       conflictStrategy:
         description: 'How to handle step conflicts: template-wins, destination-wins, or error'
         required: false
@@ -51,22 +50,24 @@ on:
         type: string
         required: true
       templateRepository:
-        description: Template repository in 'owner/repo' format
+        description: Template repository in 'owner/repo' format (empty = workflowUpdater setting)
         type: string
-        required: true
+        required: false
+        default: ''
       baseRepository:
         description: >-
           Base repository in 'owner/repo' format (the repo from which originalRef was
-          taken). Leave empty to use templateRepository.
+          taken). Leave empty to use gkySettings.workflowUpdater.baseRepository.
         type: string
         required: false
         default: ''
       originalRef:
-        description: The git ref of the previously-applied template (base for 3-way merge)
+        description: Previously-applied template ref (empty = workflowUpdater.baseRef)
         type: string
-        required: true
+        required: false
+        default: ''
       newRef:
-        description: The git ref of the template version to update to (empty = HEAD)
+        description: New template ref (empty = workflowUpdater.templateRef, then HEAD)
         type: string
         required: false
         default: ''
@@ -100,6 +101,9 @@ jobs:
     runs-on: [ self-hosted, ubuntu-latest ]
     outputs:
       updateBranches: ${{ steps.resolve-branches.outputs.branches }}
+      templateRepository: ${{ steps.resolve-settings.outputs.templateRepository }}
+      baseRepository: ${{ steps.resolve-settings.outputs.baseRepository }}
+      originalRef: ${{ steps.resolve-settings.outputs.originalRef }}
       resolvedNewRef: ${{ steps.resolve-ref.outputs.newRef }}
     steps:
       - name: Checkout
@@ -125,6 +129,42 @@ jobs:
         with:
           keep-git: false
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+
+      - name: Resolve workflow updater settings
+        id: resolve-settings
+        env:
+          GKY_SETTINGS: ${{ env.gkySettings }}
+          TEMPLATE_REPOSITORY_INPUT: ${{ inputs.templateRepository }}
+          BASE_REPOSITORY_INPUT: ${{ inputs.baseRepository }}
+          ORIGINAL_REF_INPUT: ${{ inputs.originalRef }}
+          NEW_REF_INPUT: ${{ inputs.newRef }}
+        run: |
+          set -euo pipefail
+
+          resolve_value() {
+            local input_value="$1"
+            local setting_name="$2"
+            if [ -n "$input_value" ]; then
+              printf '%s' "$input_value"
+            else
+              jq -r --arg name "$setting_name" '.workflowUpdater[$name] // ""' <<< "$GKY_SETTINGS"
+            fi
+          }
+
+          template_repository=$(resolve_value "$TEMPLATE_REPOSITORY_INPUT" templateRepository)
+          base_repository=$(resolve_value "$BASE_REPOSITORY_INPUT" baseRepository)
+          original_ref=$(resolve_value "$ORIGINAL_REF_INPUT" baseRef)
+          new_ref=$(resolve_value "$NEW_REF_INPUT" templateRef)
+
+          if [ -z "$base_repository" ]; then
+            echo "::error::baseRepository is empty and gkySettings.workflowUpdater.baseRepository is not configured."
+            exit 1
+          fi
+
+          echo "templateRepository=$template_repository" >> "$GITHUB_OUTPUT"
+          echo "baseRepository=$base_repository" >> "$GITHUB_OUTPUT"
+          echo "originalRef=$original_ref" >> "$GITHUB_OUTPUT"
+          echo "newRef=$new_ref" >> "$GITHUB_OUTPUT"
 
       - name: Resolve branches to update
         id: resolve-branches
@@ -155,8 +195,8 @@ jobs:
       - name: Resolve new template ref
         id: resolve-ref
         env:
-          NEW_REF_INPUT: ${{ inputs.newRef }}
-          TEMPLATE_REPO: ${{ inputs.templateRepository }}
+          NEW_REF_INPUT: ${{ steps.resolve-settings.outputs.newRef }}
+          TEMPLATE_REPO: ${{ steps.resolve-settings.outputs.templateRepository }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "$NEW_REF_INPUT" ]; then
@@ -198,10 +238,14 @@ jobs:
       - name: Prepare runner settings
         id: runner-settings
         env:
-          SETTINGS: ${{ env.Settings }}
+          RUNS_ON: ${{ env['runs-on'] }}
+          GITHUB_RUNNER: ${{ env.githubRunner }}
         run: |
-          echo "runs-on=$(jq -c '."runs-on" | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
-          echo "github-runner=$(jq -c '.gitHubRunner | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          test -n "$RUNS_ON"
+          test -n "$GITHUB_RUNNER"
+          echo "runs-on=$(jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$RUNS_ON")" >> "$GITHUB_OUTPUT"
+          echo "github-runner=$(jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$GITHUB_RUNNER")" >> "$GITHUB_OUTPUT"
 
       - name: Read secrets
         id: ReadSecrets
@@ -230,8 +274,8 @@ jobs:
         uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.1
         with:
           token: ${{ github.token }}
-          repository: ${{ inputs.baseRepository || inputs.templateRepository }}
-          ref: ${{ inputs.originalRef }}
+          repository: ${{ needs.Initialize.outputs.baseRepository }}
+          ref: ${{ needs.Initialize.outputs.originalRef }}
           output-directory: _merge_tmp/original
           pattern: '.github/workflows'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
@@ -242,7 +286,7 @@ jobs:
         uses: geekyllc/gky-gha-fetch-workflow-files@v0.2.1
         with:
           token: ${{ github.token }}
-          repository: ${{ inputs.templateRepository }}
+          repository: ${{ needs.Initialize.outputs.templateRepository }}
           ref: ${{ needs.Initialize.outputs.resolvedNewRef }}
           output-directory: _merge_tmp/new
           pattern: '.github/workflows'
@@ -448,7 +492,7 @@ jobs:
         id: branch-refs
         if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit != true
         env:
-          ORIGINAL_REF: ${{ inputs.originalRef }}
+          ORIGINAL_REF: ${{ needs.Initialize.outputs.originalRef }}
           NEW_REF: ${{ needs.Initialize.outputs.resolvedNewRef }}
         run: |
           shorten_sha() {
@@ -484,7 +528,7 @@ jobs:
           token: ${{ steps.ReadSecrets.outputs.TokenForPush }}
           commit_message: >-
             chore: update workflows via 3-way merge from
-            ${{ inputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
+            ${{ needs.Initialize.outputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
           path: '.github/workflows/**'
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
@@ -500,7 +544,7 @@ jobs:
           target_branch: ${{ steps.branch-name.outputs.result-0 }}
           commit_message: >-
             chore: update workflows via 3-way merge from
-            ${{ inputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
+            ${{ needs.Initialize.outputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
           path: '.github/workflows/**'
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
@@ -525,8 +569,8 @@ jobs:
 
             | Role | Repository | Ref |
             |------|-----------|-----|
-            | Original (base) | `${{ inputs.baseRepository || inputs.templateRepository }}` | `${{ inputs.originalRef }}` |
-            | New template | `${{ inputs.templateRepository }}` | `${{ needs.Initialize.outputs.resolvedNewRef }}` |
+            | Original (base) | `${{ needs.Initialize.outputs.baseRepository }}` | `${{ needs.Initialize.outputs.originalRef }}` |
+            | New template | `${{ needs.Initialize.outputs.templateRepository }}` | `${{ needs.Initialize.outputs.resolvedNewRef }}` |
             | Destination | this repository | `${{ matrix.branch }}` |
 
             ### Conflict strategy
@@ -538,9 +582,9 @@ jobs:
         env:
           ANY_CHANGES: ${{ steps.check-changes.outputs.has_changes }}
           BRANCH: ${{ matrix.branch }}
-          BASE_REPO: ${{ inputs.baseRepository || inputs.templateRepository }}
-          TEMPLATE: ${{ inputs.templateRepository }}
-          ORIG_REF: ${{ inputs.originalRef }}
+          BASE_REPO: ${{ needs.Initialize.outputs.baseRepository }}
+          TEMPLATE: ${{ needs.Initialize.outputs.templateRepository }}
+          ORIG_REF: ${{ needs.Initialize.outputs.originalRef }}
           NEW_REF: ${{ needs.Initialize.outputs.resolvedNewRef }}
           MERGED: ${{ steps.merge.outputs.merged || 'false' }}
           CONFLICTS: ${{ steps.merge.outputs.conflicts-count || '0' }}
