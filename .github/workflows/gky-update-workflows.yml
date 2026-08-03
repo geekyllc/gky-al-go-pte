@@ -254,7 +254,37 @@ jobs:
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      # ── 5. Detect whether anything actually changed ───────────
+      # ── 5. Apply repository-specific workflow settings ───────
+      - name: Replace CI/CD push branches
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CICD.yaml
+          replacements: >-
+            {"on.push.branches":${{ toJSON(fromJSON(env.Settings).CICDPushBranches) }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace pull request branches
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/PullRequestHandler.yaml
+          replacements: >-
+            {"on.pull_request.branches":${{ toJSON(fromJSON(env.Settings).CICDPullRequestBranches) }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace default workflow shells
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          # Reusable workflows begin with "_" and receive their shell as an
+          # input; all other AL-Go YAML workflows declare defaults.run.shell.
+          workflows: .github/workflows/[!_]*.yaml
+          replacements: >-
+            {"defaults.run.shell":${{ toJSON(fromJSON(env.Settings).shell) }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      # ── 6. Detect whether anything actually changed ───────────
       - name: Check for changes
         id: check-changes
         uses: geekyllc/gky-gha-check-git-changes@v0.2.1
@@ -262,14 +292,14 @@ jobs:
           paths: '.github/workflows/**'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
 
-      # ── 6. Compute safe branch name (for PR branch) ───────────
+      # ── 7. Compute safe branch name (for PR branch) ───────────
       - name: Compute safe branch name
         id: safe-name
         run: |
           safe=$(echo "${{ matrix.branch }}" | tr '/' '-' | tr ':' '-' | tr ' ' '-')
           echo "branch=$safe" >> "$GITHUB_OUTPUT"
 
-      # ── 7a. Direct commit ─────────────────────────────────────
+      # ── 8a. Direct commit ─────────────────────────────────────
       - name: Commit and push directly
         if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit == true
         uses: geekyllc/gky-gha-commit-and-push@v0.2.1
@@ -283,7 +313,7 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
 
-      # ── 7b. Create pull request ───────────────────────────────
+      # ── 8b. Create pull request ───────────────────────────────
       - name: Commit and push PR branch
         id: stage
         if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit != true
@@ -325,7 +355,7 @@ jobs:
             ### Conflict strategy
             `${{ inputs.conflictStrategy }}`
 
-      # ── 8. Job summary ────────────────────────────────────────
+      # ── 9. Job summary ────────────────────────────────────────
       - name: Write job summary
         if: always()
         env:
