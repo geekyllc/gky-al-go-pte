@@ -193,7 +193,7 @@ jobs:
         uses: microsoft/AL-Go-Actions/ReadSettings@v9.0
         with:
           shell: powershell
-          get: gkySettings, CICDPushBranches, CICDPullRequestBranches, runs-on, gitHubRunner, shell
+          get: gkySettings, CICDPushBranches, CICDPullRequestBranches, runs-on, shell
 
       - name: Prepare runner settings
         id: runner-settings
@@ -201,7 +201,6 @@ jobs:
           SETTINGS: ${{ env.Settings }}
         run: |
           echo "runs-on=$(jq -c '."runs-on" | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
-          echo "github-runner=$(jq -c '.gitHubRunner | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
 
       - name: Read secrets
         id: ReadSecrets
@@ -310,8 +309,7 @@ jobs:
         with:
           workflows: .github/workflows/PullRequestHandler.yaml
           replacements: >-
-            {"jobs.PregateCheck.runs-on":${{ steps.runner-settings.outputs.runs-on }},
-            "jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }},
             "jobs.CodeAnalysisUpload.runs-on":${{ steps.runner-settings.outputs.runs-on }},
             "jobs.StatusCheck.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
@@ -390,24 +388,6 @@ jobs:
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      - name: Replace standard runner in pull Power Platform workflow
-        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
-        with:
-          workflows: .github/workflows/PullPowerPlatformChanges.yaml
-          replacements: >-
-            {"jobs.PullChanges.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
-          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
-          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
-
-      - name: Replace standard runner in push Power Platform workflow
-        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
-        with:
-          workflows: .github/workflows/PushPowerPlatformChanges.yaml
-          replacements: >-
-            {"jobs.PushChanges.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
-          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
-          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
-
       - name: Replace standard runner in troubleshooting workflow
         uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
         with:
@@ -417,40 +397,40 @@ jobs:
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      - name: Replace GitHub runners in CI/CD workflow
+      - name: Replace standard runners in CI/CD workflow
         uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
         with:
           workflows: .github/workflows/CICD.yaml
           replacements: >-
-            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.CheckForUpdates.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.CodeAnalysisUpload.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.DeployALDoc.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.Deliver.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.CheckForUpdates.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.CodeAnalysisUpload.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.DeployALDoc.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.Deliver.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      - name: Replace GitHub runners in publish workflow
+      - name: Replace standard runners in publish workflow
         uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
         with:
           workflows: .github/workflows/PublishToEnvironment.yaml
           replacements: >-
-            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      - name: Replace GitHub runners in create release workflow
+      - name: Replace standard runners in create release workflow
         uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
         with:
           workflows: .github/workflows/CreateRelease.yaml
           replacements: >-
-            {"jobs.CreateRelease.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.UploadArtifacts.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.CreateReleaseBranch.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.UpdateVersionNumber.runs-on":${{ steps.runner-settings.outputs.github-runner }},
-            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
+            {"jobs.CreateRelease.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.UploadArtifacts.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.CreateReleaseBranch.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.UpdateVersionNumber.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
