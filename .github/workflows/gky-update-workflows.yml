@@ -193,6 +193,7 @@ jobs:
         uses: microsoft/AL-Go-Actions/ReadSettings@v9.0
         with:
           shell: powershell
+          get: gkySettings, CICDPushBranches, CICDPullRequestBranches, runs-on, gitHubRunner, shell
 
       - name: Read secrets
         id: ReadSecrets
@@ -226,6 +227,7 @@ jobs:
           output-directory: _merge_tmp/original
           pattern: '.github/workflows'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
       # ── 3. Fetch NEW template workflow directory ──────────────
       - name: Fetch new template workflows
@@ -237,6 +239,7 @@ jobs:
           output-directory: _merge_tmp/new
           pattern: '.github/workflows'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
       # ── 4. 3-way merge entire workflow directory ──────────────
       - name: Merge workflow directories
@@ -249,6 +252,7 @@ jobs:
           output-path: .github/workflows
           conflict-strategy: ${{ inputs.conflictStrategy }}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
       # ── 5. Detect whether anything actually changed ───────────
       - name: Check for changes

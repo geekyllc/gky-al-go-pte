@@ -97,13 +97,6 @@ jobs:
         shell: ${{ inputs.shell }}
     name: ${{ inputs.projectName }} (${{ inputs.buildMode }})
     steps:
-      - name: Clean up workspace
-        id: clean-workspace
-        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
-        with:
-          keep-git: false
-          min-log-level: 1
-
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -116,7 +109,14 @@ jobs:
           shell: ${{ inputs.shell }}
           project: ${{ inputs.project }}
           buildMode: ${{ inputs.buildMode }}
-          get: useCompilerFolder,workspaceCompilation,keyVaultCodesignCertificateName,doNotSignApps,doNotRunTests,doNotRunBcptTests,doNotRunpageScriptingTests,artifact,generateDependencyArtifact,trustedSigning,useGitSubmodules,trackALAlertsInGitHub
+          get: useCompilerFolder,workspaceCompilation,keyVaultCodesignCertificateName,doNotSignApps,doNotRunTests,doNotRunBcptTests,doNotRunpageScriptingTests,artifact,generateDependencyArtifact,trustedSigning,useGitSubmodules,trackALAlertsInGitHub,gkySettings
+
+      - name: Clean up workspace
+        id: clean-workspace
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
+        with:
+          keep-git: false
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
 
       - name: Determine whether to build project
         id: DetermineBuildProject
