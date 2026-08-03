@@ -116,10 +116,10 @@
     "debugContext": true,
     "logLevel": 1,
     "workflowUpdater": {
-      "templateRepository": "eekyllc/gky-al-go-pte",
-      "templateRef": "main",
+      "templateRepository": "geekyllc/gky-al-go-pte",
+      "templateRef": "chore/update-config",
       "baseRepository": "microsoft/AL-Go-PTE",
-      "baseRef": "chore/update-config"
+      "baseRef": "main"
     }
   }
 }
