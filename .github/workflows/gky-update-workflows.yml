@@ -102,14 +102,29 @@ jobs:
       updateBranches: ${{ steps.resolve-branches.outputs.branches }}
       resolvedNewRef: ${{ steps.resolve-ref.outputs.newRef }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Read settings
+        uses: microsoft/AL-Go-Actions/ReadSettings@v9.0
+        with:
+          shell: powershell
+          get: gkySettings
+
+      - name: Read secrets
+        id: ReadSecrets
+        uses: microsoft/AL-Go-Actions/ReadSecrets@v9.0
+        with:
+          shell: powershell
+          gitHubSecrets: ${{ toJson(secrets) }}
+          getSecrets: 'TokenForPush'
+          useGhTokenWorkflowForPush: 'true'
+
       - name: Clean up workspace
         uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
         with:
           keep-git: false
-          min-log-level: 1
-
-      - name: Checkout
-        uses: actions/checkout@v6
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
 
       - name: Resolve branches to update
         id: resolve-branches
@@ -166,12 +181,6 @@ jobs:
       fail-fast: false
 
     steps:
-      - name: Clean up workspace
-        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
-        with:
-          keep-git: false
-          min-log-level: 1
-
       # ── 1. Check out destination branch ──────────────────────
       - name: Checkout destination
         uses: actions/checkout@v6
@@ -193,6 +202,12 @@ jobs:
           gitHubSecrets: ${{ toJson(secrets) }}
           getSecrets: 'TokenForPush'
           useGhTokenWorkflowForPush: 'true'
+
+      - name: Clean up workspace
+        uses: geekyllc/gky-gha-cleanup-workspace@v0.2.1
+        with:
+          keep-git: false
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
 
       # ReadSecrets reads ghTokenWorkflow (algo-ghapptoken in Key Vault), decodes
       # the {"GitHubAppClientId":"...","PrivateKey":"..."} JSON and calls

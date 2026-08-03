@@ -110,5 +110,10 @@
         "storageContextSecretName": "algo-storagecontext-development"
       }
     }
-  ]
+  ],
+  "gkySettings": {
+    "emitSummary": true,
+    "debugContext": true,
+    "logLevel": 1
+  }
 }
