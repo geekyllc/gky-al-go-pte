@@ -114,6 +114,12 @@
   "gkySettings": {
     "emitSummary": true,
     "debugContext": true,
-    "logLevel": 1
+    "logLevel": 1,
+    "workflowUpdater": {
+      "templateRepository": "eekyllc/gky-al-go-pte",
+      "templateRef": "main",
+      "baseRepository": "microsoft/AL-Go-PTE",
+      "baseRef": "chore/update-config"
+    }
   }
 }
