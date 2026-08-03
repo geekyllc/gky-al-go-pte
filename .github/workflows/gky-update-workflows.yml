@@ -195,6 +195,14 @@ jobs:
           shell: powershell
           get: gkySettings, CICDPushBranches, CICDPullRequestBranches, runs-on, gitHubRunner, shell
 
+      - name: Prepare runner settings
+        id: runner-settings
+        env:
+          SETTINGS: ${{ env.Settings }}
+        run: |
+          echo "runs-on=$(jq -c '."runs-on" | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
+          echo "github-runner=$(jq -c '.gitHubRunner | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
+
       - name: Read secrets
         id: ReadSecrets
         uses: microsoft/AL-Go-Actions/ReadSecrets@v9.0
@@ -281,6 +289,168 @@ jobs:
           workflows: .github/workflows/[!_]*.yaml
           replacements: >-
             {"defaults.run.shell":${{ toJSON(fromJSON(env.Settings).shell) }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runners in test workflows
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: >-
+            [".github/workflows/Current.yaml",
+            ".github/workflows/NextMajor.yaml",
+            ".github/workflows/NextMinor.yaml"]
+          replacements: >-
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runners in pull request handler
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/PullRequestHandler.yaml
+          replacements: >-
+            {"jobs.PregateCheck.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.CodeAnalysisUpload.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.StatusCheck.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runners in system update workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/UpdateGitHubGoSystemFiles.yaml
+          replacements: >-
+            {"jobs.Initialize.runs-on":${{ steps.runner-settings.outputs.runs-on }},
+            "jobs.UpdateALGoSystemFiles.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in add existing app workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/AddExistingAppOrTestApp.yaml
+          replacements: >-
+            {"jobs.AddExistingAppOrTestApp.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in create app workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CreateApp.yaml
+          replacements: >-
+            {"jobs.CreateApp.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in create test app workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CreateTestApp.yaml
+          replacements: >-
+            {"jobs.CreateTestApp.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in create performance test app workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CreatePerformanceTestApp.yaml
+          replacements: >-
+            {"jobs.CreatePerformanceTestApp.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in online development workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CreateOnlineDevelopmentEnvironment.yaml
+          replacements: >-
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in reference documentation workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/DeployReferenceDocumentation.yaml
+          replacements: >-
+            {"jobs.DeployALDoc.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in increment version workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/IncrementVersionNumber.yaml
+          replacements: >-
+            {"jobs.IncrementVersionNumber.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in pull Power Platform workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/PullPowerPlatformChanges.yaml
+          replacements: >-
+            {"jobs.PullChanges.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in push Power Platform workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/PushPowerPlatformChanges.yaml
+          replacements: >-
+            {"jobs.PushChanges.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace standard runner in troubleshooting workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/Troubleshooting.yaml
+          replacements: >-
+            {"jobs.Troubleshooting.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace GitHub runners in CI/CD workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CICD.yaml
+          replacements: >-
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.CheckForUpdates.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.CodeAnalysisUpload.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.DeployALDoc.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.Deliver.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace GitHub runners in publish workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/PublishToEnvironment.yaml
+          replacements: >-
+            {"jobs.Initialization.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
+          min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
+          emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Replace GitHub runners in create release workflow
+        uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
+        with:
+          workflows: .github/workflows/CreateRelease.yaml
+          replacements: >-
+            {"jobs.CreateRelease.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.UploadArtifacts.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.CreateReleaseBranch.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.UpdateVersionNumber.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.PostProcess.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
