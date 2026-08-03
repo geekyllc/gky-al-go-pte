@@ -193,7 +193,7 @@ jobs:
         uses: microsoft/AL-Go-Actions/ReadSettings@v9.0
         with:
           shell: powershell
-          get: gkySettings, CICDPushBranches, CICDPullRequestBranches, runs-on, shell
+          get: gkySettings, CICDPushBranches, CICDPullRequestBranches, runs-on, gitHubRunner, shell
 
       - name: Prepare runner settings
         id: runner-settings
@@ -201,6 +201,7 @@ jobs:
           SETTINGS: ${{ env.Settings }}
         run: |
           echo "runs-on=$(jq -c '."runs-on" | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
+          echo "github-runner=$(jq -c '.gitHubRunner | split(",") | map(gsub("^\\s+|\\s+$"; ""))' <<< "$SETTINGS")" >> "$GITHUB_OUTPUT"
 
       - name: Read secrets
         id: ReadSecrets
@@ -315,13 +316,13 @@ jobs:
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      - name: Replace standard runners in system update workflow
+      - name: Replace GitHub runners in system update workflow
         uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
         with:
           workflows: .github/workflows/UpdateGitHubGoSystemFiles.yaml
           replacements: >-
-            {"jobs.Initialize.runs-on":${{ steps.runner-settings.outputs.runs-on }},
-            "jobs.UpdateALGoSystemFiles.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+            {"jobs.Initialize.runs-on":${{ steps.runner-settings.outputs.github-runner }},
+            "jobs.UpdateALGoSystemFiles.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
@@ -388,12 +389,12 @@ jobs:
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
-      - name: Replace standard runner in troubleshooting workflow
+      - name: Replace GitHub runner in troubleshooting workflow
         uses: geekyllc/gky-gha-workflow-replacer@v0.2.1
         with:
           workflows: .github/workflows/Troubleshooting.yaml
           replacements: >-
-            {"jobs.Troubleshooting.runs-on":${{ steps.runner-settings.outputs.runs-on }}}
+            {"jobs.Troubleshooting.runs-on":${{ steps.runner-settings.outputs.github-runner }}}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
