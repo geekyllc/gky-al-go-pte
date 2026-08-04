@@ -329,84 +329,90 @@ jobs:
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
       - name: Update AL-Go scripts and settings
-        shell: pwsh
+        uses: actions/github-script@v9.0.0
         env:
           SYSTEM_FILES_SOURCE: _merge_tmp/new-system-files
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $sourceRoot = Join-Path $env:GITHUB_WORKSPACE $env:SYSTEM_FILES_SOURCE
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const workspace = process.env.GITHUB_WORKSPACE;
+            const sourceRoot = path.join(workspace, process.env.SYSTEM_FILES_SOURCE);
+            const githubSource = path.join(sourceRoot, '.github');
+            const projectSource = path.join(sourceRoot, '.AL-Go');
 
-          # CheckForUpdates replaces system scripts with the template version.
-          Get-ChildItem -Path (Join-Path $sourceRoot '.github') -Filter '*.ps1' -File -ErrorAction SilentlyContinue |
-            ForEach-Object {
-              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $env:GITHUB_WORKSPACE ".github/$($_.Name)") -Force
-            }
+            const filesWithExtension = (directory, extension) => {
+              if (!fs.existsSync(directory)) return [];
+              return fs.readdirSync(directory, { withFileTypes: true })
+                .filter(entry => entry.isFile() && entry.name.endsWith(extension))
+                .map(entry => path.join(directory, entry.name));
+            };
 
-          # AL-Go project files are applied once per project. Existing .AL-Go
-          # settings files identify the project destinations; a root project is
-          # used when the repository does not contain one yet.
-          $projectSettings = @(
-            Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter 'settings.json' -File -Recurse -Force |
-              Where-Object {
-                $_.Directory.Name -eq '.AL-Go' -and
-                -not $_.FullName.StartsWith((Join-Path $env:GITHUB_WORKSPACE '_merge_tmp'))
+            const copyFiles = (sources, destinationDirectory) => {
+              fs.mkdirSync(destinationDirectory, { recursive: true });
+              for (const source of sources) {
+                fs.copyFileSync(source, path.join(destinationDirectory, path.basename(source)));
               }
-          )
-          if ($projectSettings.Count -eq 0) {
-            $projectSettings = @([pscustomobject]@{
-              Directory = [System.IO.DirectoryInfo](Join-Path $env:GITHUB_WORKSPACE '.AL-Go')
-              FullName = Join-Path $env:GITHUB_WORKSPACE '.AL-Go/settings.json'
-            })
-          }
+            };
 
-          $projectScriptSource = Join-Path $sourceRoot '.AL-Go'
-          foreach ($projectSetting in $projectSettings) {
-            New-Item -Path $projectSetting.Directory.FullName -ItemType Directory -Force | Out-Null
-            Get-ChildItem -Path $projectScriptSource -Filter '*.ps1' -File -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $projectSetting.Directory.FullName $_.Name) -Force
+            // CheckForUpdates replaces system scripts with the template version.
+            copyFiles(filesWithExtension(githubSource, '.ps1'), path.join(workspace, '.github'));
+
+            // AL-Go project files are applied once per project. Existing
+            // .AL-Go/settings.json files identify the destinations.
+            const settingsGlob = await glob.create(
+              path.join(workspace, '**', '.AL-Go', 'settings.json'),
+              { followSymbolicLinks: false }
+            );
+            let projectSettings = (await settingsGlob.glob()).filter(
+              file => !path.resolve(file).startsWith(path.resolve(workspace, '_merge_tmp') + path.sep)
+            );
+            if (projectSettings.length === 0) {
+              projectSettings = [path.join(workspace, '.AL-Go', 'settings.json')];
+            }
+
+            const projectScripts = filesWithExtension(projectSource, '.ps1');
+            for (const settingsFile of projectSettings) {
+              copyFiles(projectScripts, path.dirname(settingsFile));
+            }
+
+            // Preserve destination JSON values and refresh only $schema. New
+            // settings files are copied from the template in full.
+            const updateSettingsFile = (source, destination) => {
+              if (!fs.existsSync(source)) return;
+              fs.mkdirSync(path.dirname(destination), { recursive: true });
+              if (!fs.existsSync(destination)) {
+                fs.copyFileSync(source, destination);
+                return;
               }
-          }
 
-          # For JSON settings, CheckForUpdates preserves every destination
-          # value and only refreshes/adds the template's $schema. If a settings
-          # file is new, the template file is copied in full.
-          function Update-ALGoSettingsFile {
-            param([string] $Source, [string] $Destination)
+              const sourceSettings = JSON.parse(fs.readFileSync(source, 'utf8'));
+              if (!Object.prototype.hasOwnProperty.call(sourceSettings, '$schema')) return;
 
-            if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return }
-            if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
-              New-Item -Path (Split-Path $Destination -Parent) -ItemType Directory -Force | Out-Null
-              Copy-Item -LiteralPath $Source -Destination $Destination -Force
-              return
+              const destinationSettings = JSON.parse(fs.readFileSync(destination, 'utf8'));
+              const updatedSettings = {
+                $schema: sourceSettings.$schema,
+                ...destinationSettings
+              };
+              updatedSettings.$schema = sourceSettings.$schema;
+              fs.writeFileSync(destination, `${JSON.stringify(updatedSettings, null, 2)}\n`, 'utf8');
+            };
+
+            for (const source of filesWithExtension(githubSource, '.settings.json')) {
+              updateSettingsFile(source, path.join(workspace, '.github', path.basename(source)));
+            }
+            updateSettingsFile(
+              path.join(githubSource, 'AL-Go-Settings.json'),
+              path.join(workspace, '.github', 'AL-Go-Settings.json')
+            );
+
+            const projectSettingsSource = path.join(projectSource, 'settings.json');
+            for (const destination of projectSettings) {
+              updateSettingsFile(projectSettingsSource, destination);
             }
 
-            $sourceSettings = Get-Content -LiteralPath $Source -Raw -Encoding utf8 | ConvertFrom-Json
-            $destinationSettings = Get-Content -LiteralPath $Destination -Raw -Encoding utf8 | ConvertFrom-Json
-            if ($sourceSettings.PSObject.Properties.Name -contains '$schema') {
-              $destinationSettings | Add-Member -MemberType NoteProperty -Name '$schema' -Value $sourceSettings.'$schema' -Force
-              $destinationSettings = $destinationSettings |
-                Select-Object @{ Name = '$schema'; Expression = { $_.'$schema' } }, * -ExcludeProperty '$schema'
-              $destinationSettings | ConvertTo-Json -Depth 100 |
-                Set-Content -LiteralPath $Destination -Encoding utf8NoBOM
-            }
-          }
-
-          $githubSource = Join-Path $sourceRoot '.github'
-          @(
-            Get-ChildItem -Path $githubSource -Filter '*.settings.json' -File -ErrorAction SilentlyContinue
-            Get-Item -LiteralPath (Join-Path $githubSource 'AL-Go-Settings.json') -ErrorAction SilentlyContinue
-          ) | Where-Object { $_ } | ForEach-Object {
-            Update-ALGoSettingsFile -Source $_.FullName -Destination (Join-Path $env:GITHUB_WORKSPACE ".github/$($_.Name)")
-          }
-
-          $projectSettingsSource = Join-Path $projectScriptSource 'settings.json'
-          foreach ($projectSetting in $projectSettings) {
-            Update-ALGoSettingsFile -Source $projectSettingsSource -Destination $projectSetting.FullName
-          }
-
-          # The nested checkout is an implementation detail, not an update.
-          Remove-Item -LiteralPath $sourceRoot -Recurse -Force
+            // The nested checkout is an implementation detail, not an update.
+            fs.rmSync(sourceRoot, { recursive: true, force: true });
 
       # ── 5. Apply repository-specific workflow settings ───────
       - name: Replace CI/CD push branches
