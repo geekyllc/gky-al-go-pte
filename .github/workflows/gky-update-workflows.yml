@@ -132,7 +132,7 @@ jobs:
 
       - name: Resolve workflow updater settings
         id: resolve-settings
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@v9.0.0 # v8.0.0
         env:
           GKY_SETTINGS: ${{ env.gkySettings }}
           TEMPLATE_REPOSITORY_INPUT: ${{ inputs.templateRepository }}
@@ -165,7 +165,7 @@ jobs:
 
       - name: Resolve branches to update
         id: resolve-branches
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@v9.0.0 # v8.0.0
         env:
           INCLUDE_BRANCHES: ${{ inputs.includeBranches }}
           CURRENT_BRANCH: ${{ github.ref_name }}
@@ -178,7 +178,7 @@ jobs:
 
       - name: Resolve new template ref
         id: resolve-ref
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@v9.0.0 # v8.0.0
         env:
           NEW_REF_INPUT: ${{ steps.resolve-settings.outputs.newRef }}
           TEMPLATE_REPO: ${{ steps.resolve-settings.outputs.templateRepository }}
@@ -235,7 +235,7 @@ jobs:
 
       - name: Prepare runner settings
         id: runner-settings
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@v9.0.0 # v8.0.0
         env:
           RUNS_ON: ${{ env['runs-on'] }}
           GITHUB_RUNNER: ${{ env.githubRunner }}
@@ -595,7 +595,7 @@ jobs:
       - name: Normalize template refs for branch name
         id: branch-refs
         if: steps.check-changes.outputs.has_changes == 'true' && inputs.directCommit != true
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@v9.0.0 # v8.0.0
         env:
           ORIGINAL_REF: ${{ needs.Initialize.outputs.originalRef }}
           NEW_REF: ${{ needs.Initialize.outputs.resolvedNewRef }}
@@ -685,7 +685,7 @@ jobs:
       # ── 9. Job summary ────────────────────────────────────────
       - name: Write job summary
         if: always()
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@v9.0.0 # v8.0.0
         env:
           ANY_CHANGES: ${{ steps.check-changes.outputs.has_changes }}
           BRANCH: ${{ matrix.branch }}
