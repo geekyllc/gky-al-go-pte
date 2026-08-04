@@ -300,6 +300,21 @@ jobs:
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
 
+      # CheckForUpdates also treats the PowerShell scripts and JSON settings as
+      # AL-Go system files.  Checkout just those files so they can be updated
+      # with the same rules after the workflow merge.
+      - name: Fetch new template scripts and settings
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.Initialize.outputs.templateRepository }}
+          ref: ${{ needs.Initialize.outputs.resolvedNewRef }}
+          token: ${{ github.token }}
+          path: _merge_tmp/new-system-files
+          sparse-checkout: |
+            .github
+            .AL-Go
+          sparse-checkout-cone-mode: false
+
       # ── 4. 3-way merge entire workflow directory ──────────────
       - name: Merge workflow directories
         id: merge
@@ -312,6 +327,86 @@ jobs:
           conflict-strategy: ${{ inputs.conflictStrategy }}
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
           emit-summary: ${{ toJSON(env.gkySettings).emitSummary || 'true' }}
+
+      - name: Update AL-Go scripts and settings
+        shell: pwsh
+        env:
+          SYSTEM_FILES_SOURCE: _merge_tmp/new-system-files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceRoot = Join-Path $env:GITHUB_WORKSPACE $env:SYSTEM_FILES_SOURCE
+
+          # CheckForUpdates replaces system scripts with the template version.
+          Get-ChildItem -Path (Join-Path $sourceRoot '.github') -Filter '*.ps1' -File -ErrorAction SilentlyContinue |
+            ForEach-Object {
+              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $env:GITHUB_WORKSPACE ".github/$($_.Name)") -Force
+            }
+
+          # AL-Go project files are applied once per project. Existing .AL-Go
+          # settings files identify the project destinations; a root project is
+          # used when the repository does not contain one yet.
+          $projectSettings = @(
+            Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter 'settings.json' -File -Recurse -Force |
+              Where-Object {
+                $_.Directory.Name -eq '.AL-Go' -and
+                -not $_.FullName.StartsWith((Join-Path $env:GITHUB_WORKSPACE '_merge_tmp'))
+              }
+          )
+          if ($projectSettings.Count -eq 0) {
+            $projectSettings = @([pscustomobject]@{
+              Directory = [System.IO.DirectoryInfo](Join-Path $env:GITHUB_WORKSPACE '.AL-Go')
+              FullName = Join-Path $env:GITHUB_WORKSPACE '.AL-Go/settings.json'
+            })
+          }
+
+          $projectScriptSource = Join-Path $sourceRoot '.AL-Go'
+          foreach ($projectSetting in $projectSettings) {
+            New-Item -Path $projectSetting.Directory.FullName -ItemType Directory -Force | Out-Null
+            Get-ChildItem -Path $projectScriptSource -Filter '*.ps1' -File -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $projectSetting.Directory.FullName $_.Name) -Force
+              }
+          }
+
+          # For JSON settings, CheckForUpdates preserves every destination
+          # value and only refreshes/adds the template's $schema. If a settings
+          # file is new, the template file is copied in full.
+          function Update-ALGoSettingsFile {
+            param([string] $Source, [string] $Destination)
+
+            if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return }
+            if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+              New-Item -Path (Split-Path $Destination -Parent) -ItemType Directory -Force | Out-Null
+              Copy-Item -LiteralPath $Source -Destination $Destination -Force
+              return
+            }
+
+            $sourceSettings = Get-Content -LiteralPath $Source -Raw -Encoding utf8 | ConvertFrom-Json
+            $destinationSettings = Get-Content -LiteralPath $Destination -Raw -Encoding utf8 | ConvertFrom-Json
+            if ($sourceSettings.PSObject.Properties.Name -contains '$schema') {
+              $destinationSettings | Add-Member -MemberType NoteProperty -Name '$schema' -Value $sourceSettings.'$schema' -Force
+              $destinationSettings = $destinationSettings |
+                Select-Object @{ Name = '$schema'; Expression = { $_.'$schema' } }, * -ExcludeProperty '$schema'
+              $destinationSettings | ConvertTo-Json -Depth 100 |
+                Set-Content -LiteralPath $Destination -Encoding utf8NoBOM
+            }
+          }
+
+          $githubSource = Join-Path $sourceRoot '.github'
+          @(
+            Get-ChildItem -Path $githubSource -Filter '*.settings.json' -File -ErrorAction SilentlyContinue
+            Get-Item -LiteralPath (Join-Path $githubSource 'AL-Go-Settings.json') -ErrorAction SilentlyContinue
+          ) | Where-Object { $_ } | ForEach-Object {
+            Update-ALGoSettingsFile -Source $_.FullName -Destination (Join-Path $env:GITHUB_WORKSPACE ".github/$($_.Name)")
+          }
+
+          $projectSettingsSource = Join-Path $projectScriptSource 'settings.json'
+          foreach ($projectSetting in $projectSettings) {
+            Update-ALGoSettingsFile -Source $projectSettingsSource -Destination $projectSetting.FullName
+          }
+
+          # The nested checkout is an implementation detail, not an update.
+          Remove-Item -LiteralPath $sourceRoot -Recurse -Force
 
       # ── 5. Apply repository-specific workflow settings ───────
       - name: Replace CI/CD push branches
@@ -491,7 +586,9 @@ jobs:
         id: check-changes
         uses: geekyllc/gky-gha-check-git-changes@v0.2.1
         with:
-          paths: '.github/workflows/**'
+          paths: >-
+            .github/workflows/**, .github/*.ps1, .github/*.settings.json,
+            .github/AL-Go-Settings.json, **/.AL-Go/*.ps1, **/.AL-Go/settings.json
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
 
       # ── 7. Compute safe branch name (for PR branch) ───────────
@@ -534,7 +631,9 @@ jobs:
           commit_message: >-
             chore: update workflows via 3-way merge from
             ${{ needs.Initialize.outputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
-          path: '.github/workflows/**'
+          path: >-
+            [".github/workflows/**", ".github/*.ps1", ".github/*.settings.json",
+            ".github/AL-Go-Settings.json", "**/.AL-Go/*.ps1", "**/.AL-Go/settings.json"]
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
@@ -550,7 +649,9 @@ jobs:
           commit_message: >-
             chore: update workflows via 3-way merge from
             ${{ needs.Initialize.outputs.templateRepository }}@${{ needs.Initialize.outputs.resolvedNewRef }}
-          path: '.github/workflows/**'
+          path: >-
+            [".github/workflows/**", ".github/*.ps1", ".github/*.settings.json",
+            ".github/AL-Go-Settings.json", "**/.AL-Go/*.ps1", "**/.AL-Go/settings.json"]
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
           min-log-level: ${{ toJSON(env.gkySettings).logLevel || '1' }}
